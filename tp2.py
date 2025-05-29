@@ -1,12 +1,6 @@
 import numpy as np
-from skimage.morphology import erosion, dilation, binary_erosion, opening, closing, white_tophat, reconstruction, black_tophat, skeletonize, convex_hull_image, thin
-from skimage.morphology import square, diamond, octagon, rectangle, star, disk
-from skimage.filters.rank import entropy, enhance_contrast_percentile
+from skimage.morphology import skeletonize, remove_small_objects
 from PIL import Image
-from scipy import ndimage as ndi
-from skimage.util import img_as_ubyte
-import math
-from skimage import data, filters
 import cv2
 from matplotlib import pyplot as plt
 
@@ -33,47 +27,40 @@ def phansalskar_more_sabale_method(img, n = 5, k = 0.25, r = 0.5, p = 2, q = 10)
             threshold = mu * (1 + p * np.exp(-q * mu) + k * (sigma / r - 1))
             a[i][j] = (255 if a[i][j] <= threshold else 0)
 
-    
+    # cv2.imshow("a", a)
+    return a.astype(img.dtype)
+
+def mode_method(img, n = 5, f = 0.5):
+    n = int(n / 2)
+    a = img.copy()
+
+    height = len(a)
+    width = len(a[0])
+
+    for i in range(height):
+        for j in range(width):
+            i_st, i_nd, j_st, j_nd = get_edges(height, width, i, j, n)
+
+            kernel = img[i_st:i_nd, j_st:j_nd]
+            mode = kernel.sum() > (len(kernel.flatten()) * f) * 255
+
+            a[i][j] = mode * 255
+
+    # cv2.imshow("b", a)
     return a.astype(img.dtype)
 
 def my_segmentation(img, img_mask, seuil):
     mask = img_mask.astype(np.uint8) * 255
-    return phansalskar_more_sabale_method(img, n = 13, q = 15, p = 0.5, k = 0.15, r = 0.5) & mask
-    # img_out = (img_mask & (img < seuil))
-    # return img_out
-
-n_range = np.arange(1, 25, 2)
-q_range = np.arange(1, 50, 4)
-p_range = np.arange(0.1, 1, 0.1)
-k_range = np.arange(0.05, 0.25, 0.01)
-def choose_parameters(img, img_mask):
-    best_ACCU = 0
-    best_RECALL = 0
-    best_img_out = None
-    best_n = 0
-    best_q = 0
-    best_p = 0
-    best_k = 0
-
-    for n in n_range:
-        print("n = {}/{}".format(n, n_range[-1]))
-        for q in q_range:
-            for p in p_range:
-                for k in k_range:
-                    img_out = phansalskar_more_sabale_method(img, n=n, q=q, p=p, k=k, r=0.5)
-                    ACCU, RECALL, img_out_skel, GT_skel = evaluate(img_out, img_GT)
-                    if ACCU > best_ACCU:
-                        print('Best parameters so far: n =', n, ', q =', q, ', p =', p, ', k =', k)
-                        print('Accuracy =', ACCU, ', Recall =', RECALL)
-                        best_ACCU = ACCU
-                        best_RECALL = RECALL
-                        best_img_out = img_out
-                        best_n = n
-                        best_q = q
-                        best_p = p
-                        best_k = k
-
-    return best_img_out, (best_n, best_q, best_p, best_k)
+    # cv2.imshow("mask", mask)
+    # seg = phansalskar_more_sabale_method(img, n = 11, q = 20, p = 0.5, k = 0.08, r = 0.5) & mask
+    # seg = phansalskar_more_sabale_method(img, n = 23, q = 17, p = 0.9, k = 0.2, r = 0.5) & mask
+    # seg = mode_method(seg, n = 3, f = 0.2) & mask
+    # high_acc = seg.copy()
+    seg = phansalskar_more_sabale_method(img, n = 23, q = 17, p = 0.9, k = 0.12, r = 0.5) & mask
+    high_rec = seg.copy()
+    high_rec = remove_small_objects(high_rec.astype(bool), min_size=10, connectivity=2).astype(np.uint8) * 255
+    cv2.imshow("high_rec", high_rec)
+    return high_rec
 
 def evaluate(img_out, img_GT):
     GT_skel = skeletonize(img_GT) # On reduit le support de l'evaluation...
@@ -94,14 +81,13 @@ nrows, ncols = img.shape
 row, col = np.ogrid[:nrows, :ncols]
 #On ne considere que les pixels dans le disque inscrit 
 img_mask = (np.ones(img.shape)).astype(np.bool_)
-invalid_pixels = ((row - nrows/2)**2 + (col - ncols/2)**2 > (nrows / 2)**2)
+invalid_pixels = ((row - nrows/2)**2 + (col - ncols/2)**2 > (-10 + nrows / 2)**2)
 img_mask[invalid_pixels] = 0
 
 img_out = my_segmentation(img,img_mask,80)
 
 #Ouvrir l'image Verite Terrain en booleen
 img_GT =  np.asarray(Image.open('./images_IOSTAR/GT_01.png')).astype(np.uint32)
-print(choose_parameters(img, img_mask))
 
 ACCU, RECALL, img_out_skel, GT_skel = evaluate(img_out, img_GT)
 print('Accuracy =', ACCU,', Recall =', RECALL)
